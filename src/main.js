@@ -1,566 +1,467 @@
+// ─────────────────────────────────────────────────────────────
+//  NASA-Grade Interactive 3D Earth Visualization
+//  Three.js r0.161 · ES Modules · PBR Pipeline
+// ─────────────────────────────────────────────────────────────
+
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
-import {
-  photosphereVertexShader,
-  photosphereFragmentShader,
-  chromosphereVertexShader,
-  chromosphereFragmentShader,
-  coronaVertexShader,
-  coronaFragmentShader,
-  coreVertexShader,
-  coreFragmentShader,
-} from "./shaders.js";
+// ── Constants ──────────────────────────────────────────────
+const EARTH_RADIUS = 5;
+const EARTH_TILT = THREE.MathUtils.degToRad(23.44);
+const MOON_DISTANCE = 18;
+const MOON_RADIUS = 1.3;
+const MOON_ORBITAL_TILT = THREE.MathUtils.degToRad(5.14);
 
+// ── Renderer ───────────────────────────────────────────────
 const container = document.getElementById("app");
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.5;
+renderer.toneMappingExposure = 1.1;
+renderer.physicallyCorrectLights = true;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
+// ── Scene ──────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
+scene.background = new THREE.Color(0x000005);
 
+// ── Camera ─────────────────────────────────────────────────
 const camera = new THREE.PerspectiveCamera(
   45,
   window.innerWidth / window.innerHeight,
   0.1,
-  200
+  500
 );
-camera.position.set(0, 5, 18);
+camera.position.set(0, 8, 20);
 
+// ── Controls ───────────────────────────────────────────────
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.minDistance = 6;
+controls.dampingFactor = 0.04;
+controls.minDistance = 8;
 controls.maxDistance = 40;
+controls.enablePan = false;
+controls.rotateSpeed = 0.5;
 
-const composer = new EffectComposer(renderer);
-const renderPass = new RenderPass(scene, camera);
-composer.addPass(renderPass);
+// ── Texture Loader ─────────────────────────────────────────
+const loader = new THREE.TextureLoader();
 
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  1.8,
-  0.4,
-  0.0
-);
-composer.addPass(bloomPass);
-
-const starField = new THREE.Group();
-const starGeometry = new THREE.BufferGeometry();
-const starCount = 3000;
-const starPositions = new Float32Array(starCount * 3);
-
-for (let i = 0; i < starCount; i++) {
-  const r = 200;
-  const u = Math.random();
-  const v = Math.random();
-  const theta = 2 * Math.PI * u;
-  const phi = Math.acos(2 * v - 1);
-  const x = r * Math.sin(phi) * Math.cos(theta);
-  const y = r * Math.sin(phi) * Math.sin(theta);
-  const z = r * Math.cos(phi);
-  starPositions[i * 3 + 0] = x;
-  starPositions[i * 3 + 1] = y;
-  starPositions[i * 3 + 2] = z;
+function loadTex(path, encoding) {
+  const tex = loader.load(path);
+  if (encoding === "srgb") tex.encoding = THREE.sRGBEncoding;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
 }
 
-starGeometry.setAttribute(
-  "position",
-  new THREE.BufferAttribute(starPositions, 3)
-);
+// ── Earth Group (tilted) ───────────────────────────────────
+const earthGroup = new THREE.Group();
+earthGroup.rotation.z = EARTH_TILT;
+scene.add(earthGroup);
 
-const starMaterial = new THREE.PointsMaterial({
-  color: 0xffffff,
-  size: 0.7,
-  sizeAttenuation: true,
-  transparent: true,
-  opacity: 0.8,
-});
+// ─────────────────────────────────────────────────────────
+//  1. EARTH SURFACE (PBR)
+// ─────────────────────────────────────────────────────────
+function createEarth() {
+  const geometry = new THREE.SphereGeometry(EARTH_RADIUS, 128, 128);
 
-const stars = new THREE.Points(starGeometry, starMaterial);
-starField.add(stars);
-scene.add(starField);
-
-const SUN_RADIUS = 5;
-
-function createSun() {
-  const group = new THREE.Group();
-
-  const photosphereGeometry = new THREE.SphereGeometry(SUN_RADIUS, 128, 128);
-
-  const photosphereMaterial = new THREE.ShaderMaterial({
-    vertexShader: photosphereVertexShader,
-    fragmentShader: photosphereFragmentShader,
-    uniforms: {
-      time: { value: 0 },
-      colorHot: { value: new THREE.Color(1.0, 0.86, 0.4) },
-      colorCool: { value: new THREE.Color(0.9, 0.4, 0.05) },
-      brightness: { value: 2.2 },
-    },
-    transparent: false,
+  const material = new THREE.MeshPhysicalMaterial({
+    map: loadTex("textures/earth_albedo_8k.jpg", "srgb"),
+    normalMap: loadTex("textures/earth_normal_8k.jpg"),
+    normalScale: new THREE.Vector2(0.8, 0.8),
+    roughnessMap: loadTex("textures/earth_specular_8k.jpg"),
+    metalness: 0.0,
+    roughness: 1.0,
+    clearcoat: 0.1,
+    clearcoatRoughness: 0.4,
   });
 
-  const photosphere = new THREE.Mesh(photosphereGeometry, photosphereMaterial);
-  photosphere.name = "photosphere";
-  group.add(photosphere);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
 
-  const chromosphereGeometry = new THREE.SphereGeometry(
-    SUN_RADIUS * 1.03,
-    96,
-    96
-  );
+// ─────────────────────────────────────────────────────────
+//  2. CLOUD LAYER
+// ─────────────────────────────────────────────────────────
+function createClouds() {
+  const geometry = new THREE.SphereGeometry(EARTH_RADIUS + 0.05, 128, 128);
 
-  const chromosphereMaterial = new THREE.ShaderMaterial({
-    vertexShader: chromosphereVertexShader,
-    fragmentShader: chromosphereFragmentShader,
-    uniforms: {
-      time: { value: 0 },
-      colorInner: { value: new THREE.Color(1.0, 0.47, 0.2) },
-      colorOuter: { value: new THREE.Color(0.9, 0.2, 0.05) },
-    },
+  const material = new THREE.MeshStandardMaterial({
+    map: loadTex("textures/earth_clouds_4k.png", "srgb"),
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    roughness: 1.0,
+    metalness: 0.0,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  return mesh;
+}
+
+// ─────────────────────────────────────────────────────────
+//  3. ATMOSPHERE (Fresnel Rayleigh Glow)
+// ─────────────────────────────────────────────────────────
+function createAtmosphere() {
+  const geometry = new THREE.SphereGeometry(EARTH_RADIUS + 0.3, 128, 128);
+
+  const material = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vViewDir = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      void main() {
+        float fresnel = 1.0 - dot(vNormal, vViewDir);
+        fresnel = pow(fresnel, 3.5);
+        // Rayleigh blue scattering color
+        vec3 atmosphereColor = vec3(0.3, 0.6, 1.0);
+        gl_FragColor = vec4(atmosphereColor, fresnel * 0.65);
+      }
+    `,
     blending: THREE.AdditiveBlending,
     side: THREE.BackSide,
     transparent: true,
     depthWrite: false,
   });
 
-  const chromosphere = new THREE.Mesh(
-    chromosphereGeometry,
-    chromosphereMaterial
-  );
-  chromosphere.name = "chromosphere";
-  group.add(chromosphere);
+  return new THREE.Mesh(geometry, material);
+}
 
-  const coronaGeometry = new THREE.SphereGeometry(SUN_RADIUS * 2.5, 96, 96);
-  const coronaMaterial = new THREE.ShaderMaterial({
-    vertexShader: coronaVertexShader,
-    fragmentShader: coronaFragmentShader,
+// ─────────────────────────────────────────────────────────
+//  4. NIGHT LIGHTS (city lights on dark side)
+// ─────────────────────────────────────────────────────────
+function createNightLights() {
+  const geometry = new THREE.SphereGeometry(EARTH_RADIUS + 0.01, 128, 128);
+
+  const material = new THREE.ShaderMaterial({
     uniforms: {
-      time: { value: 0 },
-      colorInner: { value: new THREE.Color(0.9, 0.95, 1.0) },
-      colorOuter: { value: new THREE.Color(0.5, 0.7, 1.0) },
+      nightMap: { value: loadTex("textures/earth_night_8k.jpg", "srgb") },
+      sunDirection: { value: new THREE.Vector3(1, 0, 1).normalize() },
     },
-    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormalW;
+      void main() {
+        vUv = uv;
+        vNormalW = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D nightMap;
+      uniform vec3 sunDirection;
+      varying vec2 vUv;
+      varying vec3 vNormalW;
+      void main() {
+        float sunFacing = dot(vNormalW, sunDirection);
+        // Only show lights on the dark side
+        float nightFactor = smoothstep(-0.1, -0.3, sunFacing);
+        vec4 nightColor = texture2D(nightMap, vUv);
+        gl_FragColor = vec4(nightColor.rgb * nightFactor * 1.5, nightFactor * nightColor.r);
+      }
+    `,
     transparent: true,
-    side: THREE.FrontSide,
+    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
 
-  const corona = new THREE.Mesh(coronaGeometry, coronaMaterial);
-  corona.name = "corona";
-  group.add(corona);
+  return new THREE.Mesh(geometry, material);
+}
 
-  const prominenceGroup = new THREE.Group();
-  prominenceGroup.name = "prominences";
+// ─────────────────────────────────────────────────────────
+//  5. MOON
+// ─────────────────────────────────────────────────────────
+function createMoon() {
+  const orbitGroup = new THREE.Group();
+  orbitGroup.rotation.x = MOON_ORBITAL_TILT;
 
-  const prominenceMaterial = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(1.0, 0.55, 0.2),
-    transparent: true,
-    opacity: 0.7,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
+  const geometry = new THREE.SphereGeometry(MOON_RADIUS, 64, 64);
 
-  const prominenceCount = 12;
-  for (let i = 0; i < prominenceCount; i++) {
-    const arcRadius = SUN_RADIUS * (1.05 + Math.random() * 0.2);
-    const tubeRadius = SUN_RADIUS * 0.015;
-
-    const arcLength = Math.PI * (0.3 + Math.random() * 0.3);
-    const torusGeometry = new THREE.TorusGeometry(
-      arcRadius,
-      tubeRadius,
-      24,
-      64,
-      arcLength
-    );
-
-    const torus = new THREE.Mesh(torusGeometry, prominenceMaterial.clone());
-
-    const lat = THREE.MathUtils.degToRad(THREE.MathUtils.randFloatSpread(50));
-    const lon = THREE.MathUtils.degToRad(Math.random() * 360);
-
-    const dir = new THREE.Vector3(
-      Math.cos(lat) * Math.cos(lon),
-      Math.sin(lat),
-      Math.cos(lat) * Math.sin(lon)
-    ).normalize();
-
-    const centerRadius = SUN_RADIUS * 1.02;
-    torus.position.copy(dir.multiplyScalar(centerRadius));
-
-    torus.lookAt(torus.position.clone().multiplyScalar(1.1));
-    torus.rotateX(Math.PI * 0.5);
-
-    const scale = 0.7 + Math.random() * 0.3;
-    torus.scale.set(scale, scale, scale);
-
-    torus.userData = {
-      baseOpacity: torus.material.opacity,
-      phaseOffset: Math.random() * Math.PI * 2,
-    };
-
-    prominenceGroup.add(torus);
-  }
-
-  group.add(prominenceGroup);
-
-  const flareGroup = new THREE.Group();
-  flareGroup.name = "flares";
-
-  const flareCount = 5;
-  for (let i = 0; i < flareCount; i++) {
-    const flareGeometry = new THREE.SphereGeometry(SUN_RADIUS * 0.18, 32, 32);
-    const flareMaterial = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(1.0, 0.9, 0.6),
-      transparent: true,
-      opacity: 0.0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const flare = new THREE.Mesh(flareGeometry, flareMaterial);
-    flare.visible = false;
-    flare.userData = {
-      active: false,
-      startTime: 0,
-      duration: 0.8 + Math.random() * 0.6,
-      cooldown: Math.random() * 5.0,
-      nextTrigger: Math.random() * 8.0,
-    };
-    flareGroup.add(flare);
-  }
-
-  group.add(flareGroup);
-
-  const windCount = 6000;
-  const windGeometry = new THREE.BufferGeometry();
-  const windPositions = new Float32Array(windCount * 3);
-  const windVelocities = new Float32Array(windCount * 3);
-
-  function resetWindParticle(i) {
-    const u = Math.random();
-    const v = Math.random();
-    const theta = 2 * Math.PI * u;
-    const phi = Math.acos(2 * v - 1);
-    const x = Math.sin(phi) * Math.cos(theta);
-    const y = Math.sin(phi) * Math.sin(theta);
-    const z = Math.cos(phi);
-    const r = SUN_RADIUS * (1.05 + Math.random() * 0.05);
-    windPositions[i * 3 + 0] = x * r;
-    windPositions[i * 3 + 1] = y * r;
-    windPositions[i * 3 + 2] = z * r;
-    const speed = 0.08 + Math.random() * 0.18;
-    windVelocities[i * 3 + 0] = x * speed;
-    windVelocities[i * 3 + 1] = y * speed;
-    windVelocities[i * 3 + 2] = z * speed;
-  }
-
-  for (let i = 0; i < windCount; i++) {
-    resetWindParticle(i);
-  }
-
-  windGeometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(windPositions, 3)
+  // Load moon normal map if available (may 404)
+  const moonNormalTex = loader.load(
+    "textures/moon_normal_4k.jpg",
+    undefined,
+    undefined,
+    () => { } // silently ignore 404
   );
 
-  const windMaterial = new THREE.PointsMaterial({
-    color: new THREE.Color(0.8, 0.9, 1.0),
-    size: 0.04,
-    transparent: true,
-    opacity: 0.6,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-
-  const solarWind = new THREE.Points(windGeometry, windMaterial);
-  solarWind.name = "solarWind";
-  solarWind.userData = {
-    velocities: windVelocities,
-  };
-
-  group.add(solarWind);
-
-  const coreGroup = new THREE.Group();
-  coreGroup.name = "internalLayers";
-
-  const coreGeometry = new THREE.SphereGeometry(SUN_RADIUS * 0.25, 64, 64);
-  const coreMaterial = new THREE.ShaderMaterial({
-    vertexShader: coreVertexShader,
-    fragmentShader: coreFragmentShader,
-    uniforms: {
-      time: { value: 0 },
-      colorCore: { value: new THREE.Color(1.0, 1.0, 0.9) },
-    },
-    transparent: false,
-  });
-
-  const core = new THREE.Mesh(coreGeometry, coreMaterial);
-  core.name = "core";
-  coreGroup.add(core);
-
-  const radiativeGeometry = new THREE.SphereGeometry(SUN_RADIUS * 0.45, 64, 64);
-  const radiativeMaterial = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(1.0, 0.9, 0.7),
-    emissive: new THREE.Color(1.0, 0.9, 0.6),
-    emissiveIntensity: 2.5,
-    transparent: true,
-    opacity: 0.9,
-    roughness: 0.2,
+  const material = new THREE.MeshStandardMaterial({
+    map: loadTex("textures/moon_albedo_4k.jpg", "srgb"),
+    normalMap: moonNormalTex,
+    normalScale: new THREE.Vector2(1.2, 1.2),
+    roughness: 0.95,
     metalness: 0.0,
   });
 
-  const radiativeZone = new THREE.Mesh(radiativeGeometry, radiativeMaterial);
-  radiativeZone.name = "radiativeZone";
-  coreGroup.add(radiativeZone);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.position.set(MOON_DISTANCE, 0, 0);
 
-  const convectiveGeometry = new THREE.SphereGeometry(SUN_RADIUS * 0.75, 64, 64);
-  const convectiveMaterial = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(1.0, 0.7, 0.3),
-    emissive: new THREE.Color(1.0, 0.6, 0.2),
-    emissiveIntensity: 1.5,
+  orbitGroup.add(mesh);
+  return { orbitGroup, mesh };
+}
+
+// ─────────────────────────────────────────────────────────
+//  6. SATELLITES
+// ─────────────────────────────────────────────────────────
+function createSatellite(orbitRadius, speed, color, size) {
+  const orbitGroup = new THREE.Group();
+  // Random orbital tilt for variety
+  orbitGroup.rotation.x = THREE.MathUtils.degToRad(
+    THREE.MathUtils.randFloat(20, 80)
+  );
+  orbitGroup.rotation.z = THREE.MathUtils.degToRad(
+    THREE.MathUtils.randFloat(-30, 30)
+  );
+
+  // Main body
+  const bodyGeom = new THREE.BoxGeometry(size, size * 0.6, size * 1.8);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: color,
+    roughness: 0.3,
+    metalness: 0.8,
+  });
+  const body = new THREE.Mesh(bodyGeom, bodyMat);
+
+  // Solar panels
+  const panelGeom = new THREE.BoxGeometry(size * 3, size * 0.05, size * 0.8);
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 0x1a3a6a,
+    roughness: 0.2,
+    metalness: 0.6,
+  });
+  const panelLeft = new THREE.Mesh(panelGeom, panelMat);
+  panelLeft.position.x = -size * 1.8;
+  const panelRight = new THREE.Mesh(panelGeom, panelMat);
+  panelRight.position.x = size * 1.8;
+
+  const satGroup = new THREE.Group();
+  satGroup.add(body, panelLeft, panelRight);
+  satGroup.position.set(orbitRadius, 0, 0);
+
+  orbitGroup.add(satGroup);
+  orbitGroup.userData = { speed, satGroup };
+
+  return orbitGroup;
+}
+
+// ─────────────────────────────────────────────────────────
+//  7. STARFIELD
+// ─────────────────────────────────────────────────────────
+function createStarfield() {
+  const starCount = 6000;
+  const positions = new Float32Array(starCount * 3);
+  const sizes = new Float32Array(starCount);
+  const colors = new Float32Array(starCount * 3);
+
+  for (let i = 0; i < starCount; i++) {
+    // Uniform sphere distribution
+    const r = 200 + Math.random() * 100;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i * 3 + 2] = r * Math.cos(phi);
+
+    // Vary size for depth
+    sizes[i] = 0.3 + Math.random() * 0.7;
+
+    // Slight warm/cool color variation
+    const temp = Math.random();
+    if (temp < 0.15) {
+      // warm orange-ish
+      colors[i * 3] = 1.0;
+      colors[i * 3 + 1] = 0.85;
+      colors[i * 3 + 2] = 0.7;
+    } else if (temp < 0.3) {
+      // cool blue
+      colors[i * 3] = 0.7;
+      colors[i * 3 + 1] = 0.8;
+      colors[i * 3 + 2] = 1.0;
+    } else {
+      // white
+      colors[i * 3] = 1.0;
+      colors[i * 3 + 1] = 1.0;
+      colors[i * 3 + 2] = 1.0;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: 0.5,
+    sizeAttenuation: true,
     transparent: true,
-    opacity: 0.8,
-    roughness: 0.7,
+    opacity: 0.55,
+    vertexColors: true,
+    depthWrite: false,
   });
 
-  const convectiveZone = new THREE.Mesh(convectiveGeometry, convectiveMaterial);
-  convectiveZone.name = "convectiveZone";
-  coreGroup.add(convectiveZone);
-
-  coreGroup.visible = false;
-
-  group.add(coreGroup);
-
-  group.userData = {
-    photosphereMaterial,
-    chromosphereMaterial,
-    coronaMaterial,
-    coreMaterial,
-    coreGroup,
-    flares: flareGroup.children,
-    prominences: prominenceGroup.children,
-    solarWind,
-    differentialRotationFactor: 0.04,
-  };
-
-  return group;
+  const points = new THREE.Points(geometry, material);
+  return points;
 }
 
-const sun = createSun();
-scene.add(sun);
+// ─────────────────────────────────────────────────────────
+//  8. LIGHTING
+// ─────────────────────────────────────────────────────────
+function createLighting() {
+  // Directional sunlight
+  const sunLight = new THREE.DirectionalLight(0xffffff, 3);
+  sunLight.position.set(20, 5, 20);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.camera.near = 0.5;
+  sunLight.shadow.camera.far = 60;
+  sunLight.shadow.camera.left = -15;
+  sunLight.shadow.camera.right = 15;
+  sunLight.shadow.camera.top = 15;
+  sunLight.shadow.camera.bottom = -15;
+  sunLight.shadow.bias = -0.0005;
 
-const tempScale = SUN_RADIUS / 696340000.0;
+  // Very subtle fill light
+  const ambientLight = new THREE.AmbientLight(0x3a4a6a, 0.08);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.02);
-scene.add(ambientLight);
+  // Subtle back-rim light for cinematic look
+  const rimLight = new THREE.DirectionalLight(0x4466aa, 0.3);
+  rimLight.position.set(-15, 5, -15);
 
-const sunLight = new THREE.PointLight(0xffffff, 3.0, 0, 2);
-sunLight.position.set(0, 0, 0);
-scene.add(sunLight);
-
-let isCutaway = false;
-let flaresEnabled = true;
-
-function setCutaway(enabled) {
-  isCutaway = enabled;
-  const photosphere = sun.getObjectByName("photosphere");
-  const chromosphere = sun.getObjectByName("chromosphere");
-  const corona = sun.getObjectByName("corona");
-  const internal = sun.getObjectByName("internalLayers");
-
-  if (!photosphere || !chromosphere || !corona || !internal) {
-    return;
-  }
-
-  photosphere.material.transparent = enabled;
-  chromosphere.material.transparent = true;
-  corona.material.transparent = true;
-
-  photosphere.material.opacity = enabled ? 0.35 : 1.0;
-  chromosphere.material.opacity = enabled ? 0.25 : 1.0;
-  corona.material.opacity = enabled ? 0.4 : 1.0;
-
-  internal.visible = enabled;
+  return { sunLight, ambientLight, rimLight };
 }
 
-window.addEventListener("keydown", (event) => {
-  if (event.key === "c" || event.key === "C") {
-    setCutaway(!isCutaway);
-  }
-  if (event.key === "f" || event.key === "F") {
-    flaresEnabled = !flaresEnabled;
-  }
-});
+// ═════════════════════════════════════════════════════════
+//  ASSEMBLE SCENE
+// ═════════════════════════════════════════════════════════
 
-function updateSolarWind(delta, elapsedTime) {
-  const solarWind = sun.userData.solarWind;
-  const positions = solarWind.geometry.attributes.position.array;
-  const velocities = solarWind.userData.velocities;
-  const count = positions.length / 3;
+// Earth surface
+const earth = createEarth();
+earthGroup.add(earth);
 
-  for (let i = 0; i < count; i++) {
-    const idx = i * 3;
-    positions[idx + 0] += velocities[idx + 0] * delta * 60;
-    positions[idx + 1] += velocities[idx + 1] * delta * 60;
-    positions[idx + 2] += velocities[idx + 2] * delta * 60;
+// Night lights
+const nightLights = createNightLights();
+earthGroup.add(nightLights);
 
-    const x = positions[idx + 0];
-    const y = positions[idx + 1];
-    const z = positions[idx + 2];
-    const r = Math.sqrt(x * x + y * y + z * z);
+// Clouds
+const clouds = createClouds();
+earthGroup.add(clouds);
 
-    if (r > SUN_RADIUS * 6.0) {
-      const u = Math.random();
-      const v = Math.random();
-      const theta = 2 * Math.PI * u;
-      const phi = Math.acos(2 * v - 1);
-      const dx = Math.sin(phi) * Math.cos(theta);
-      const dy = Math.sin(phi) * Math.sin(theta);
-      const dz = Math.cos(phi);
-      const radius = SUN_RADIUS * (1.05 + Math.random() * 0.05);
-      positions[idx + 0] = dx * radius;
-      positions[idx + 1] = dy * radius;
-      positions[idx + 2] = dz * radius;
-      const speed = 0.08 + Math.random() * 0.18;
-      velocities[idx + 0] = dx * speed;
-      velocities[idx + 1] = dy * speed;
-      velocities[idx + 2] = dz * speed;
-    }
-  }
+// Atmosphere
+const atmosphere = createAtmosphere();
+earthGroup.add(atmosphere);
 
-  solarWind.geometry.attributes.position.needsUpdate = true;
-}
+// Moon
+const { orbitGroup: moonOrbit, mesh: moonMesh } = createMoon();
+earthGroup.add(moonOrbit);
 
-function updateProminences(delta, elapsedTime) {
-  const prominences = sun.userData.prominences;
-  for (let i = 0; i < prominences.length; i++) {
-    const torus = prominences[i];
-    const data = torus.userData;
-    const t = elapsedTime * 0.4 + data.phaseOffset;
-    const scaleMod = 0.9 + Math.sin(t * 2.0) * 0.1;
-    torus.scale.setScalar(scaleMod);
-    torus.material.opacity =
-      data.baseOpacity * (0.7 + 0.3 * Math.sin(t * 1.5 + i));
-  }
-}
+// Satellites
+const satellites = [];
+const sat1 = createSatellite(EARTH_RADIUS + 2.0, 0.5, 0xc0c0c0, 0.12);
+const sat2 = createSatellite(EARTH_RADIUS + 3.5, 0.3, 0xaabbcc, 0.1);
+const sat3 = createSatellite(EARTH_RADIUS + 1.5, 0.7, 0xdddddd, 0.08);
+satellites.push(sat1, sat2, sat3);
+satellites.forEach((s) => earthGroup.add(s));
 
-function updateFlares(delta, elapsedTime) {
-  const flares = sun.userData.flares;
-  if (!flaresEnabled) {
-    for (let i = 0; i < flares.length; i++) {
-      const flare = flares[i];
-      flare.visible = false;
-      flare.material.opacity = 0.0;
-    }
-    return;
-  }
+// Starfield
+const starfield = createStarfield();
+scene.add(starfield);
 
-  for (let i = 0; i < flares.length; i++) {
-    const flare = flares[i];
-    const data = flare.userData;
+// Lighting
+const { sunLight, ambientLight, rimLight } = createLighting();
+scene.add(sunLight, ambientLight, rimLight);
 
-    if (!data.active) {
-      data.nextTrigger -= delta;
-      if (data.nextTrigger <= 0) {
-        data.active = true;
-        data.startTime = elapsedTime;
-        data.duration = 0.7 + Math.random() * 0.7;
-        data.nextTrigger = 4.0 + Math.random() * 8.0;
+// ═════════════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ═════════════════════════════════════════════════════════
 
-        const u = Math.random();
-        const v = Math.random();
-        const theta = 2 * Math.PI * u;
-        const phi = Math.acos(2 * v - 1);
-        const x = Math.sin(phi) * Math.cos(theta);
-        const y = Math.sin(phi) * Math.sin(theta);
-        const z = Math.cos(phi);
-        const r = SUN_RADIUS * (1.02 + Math.random() * 0.05);
-        flare.position.set(x * r, y * r, z * r);
-      }
-    }
-
-    if (data.active) {
-      flare.visible = true;
-      const t = (elapsedTime - data.startTime) / data.duration;
-      if (t >= 1.0) {
-        data.active = false;
-        flare.visible = false;
-        flare.material.opacity = 0.0;
-      } else {
-        const intensity = Math.sin(Math.PI * t);
-        flare.material.opacity = intensity * 0.9;
-        const s = 0.8 + intensity * 1.5;
-        flare.scale.setScalar(s);
-      }
-    }
-  }
-}
-
-function updateInternalLayers(delta, elapsedTime) {
-  const internal = sun.userData.coreGroup;
-  if (!internal.visible) {
-    return;
-  }
-  const convectiveZone = internal.getObjectByName("convectiveZone");
-  if (convectiveZone) {
-    convectiveZone.rotation.y += delta * 0.15;
-  }
-}
-
+const clockEl = document.getElementById("utc-clock");
 let previousTime = performance.now() / 1000;
 
 function animate() {
   requestAnimationFrame(animate);
 
   const currentTime = performance.now() / 1000;
-  const delta = currentTime - previousTime;
+  const delta = Math.min(currentTime - previousTime, 0.1); // clamp
   previousTime = currentTime;
 
-  const elapsedTime = currentTime;
+  // ── UTC-based Earth rotation ──
+  const now = new Date();
+  const utcHours =
+    now.getUTCHours() +
+    now.getUTCMinutes() / 60 +
+    now.getUTCSeconds() / 3600 +
+    now.getUTCMilliseconds() / 3600000;
 
-  const photosphereMaterial = sun.userData.photosphereMaterial;
-  const chromosphereMaterial = sun.userData.chromosphereMaterial;
-  const coronaMaterial = sun.userData.coronaMaterial;
-  const coreMaterial = sun.userData.coreMaterial;
+  earth.rotation.y = (utcHours / 24) * Math.PI * 2;
+  nightLights.rotation.y = earth.rotation.y;
 
-  photosphereMaterial.uniforms.time.value = elapsedTime;
-  chromosphereMaterial.uniforms.time.value = elapsedTime;
-  coronaMaterial.uniforms.time.value = elapsedTime;
-  coreMaterial.uniforms.time.value = elapsedTime;
+  // Update sun direction for night lights shader
+  const sunDir = sunLight.position.clone().normalize();
+  nightLights.material.uniforms.sunDirection.value.copy(sunDir);
 
-  sun.rotation.y += delta * sun.userData.differentialRotationFactor;
+  // ── Cloud drift (slightly faster than Earth) ──
+  clouds.rotation.y = earth.rotation.y + currentTime * 0.003;
 
-  updateSolarWind(delta, elapsedTime);
-  updateProminences(delta, elapsedTime);
-  updateFlares(delta, elapsedTime);
-  updateInternalLayers(delta, elapsedTime);
+  // ── Moon orbit + tidal lock ──
+  moonOrbit.rotation.y += delta * 0.08;
+  moonMesh.rotation.y += delta * 0.08;
+
+  // ── Satellite orbits ──
+  satellites.forEach((sat) => {
+    sat.rotation.y += delta * sat.userData.speed;
+    // Spin the satellite itself slightly
+    if (sat.userData.satGroup) {
+      sat.userData.satGroup.rotation.y += delta * 0.3;
+    }
+  });
+
+  // ── Starfield slow rotation ──
+  starfield.rotation.y += delta * 0.001;
+
+  // ── UTC clock display ──
+  if (clockEl) {
+    clockEl.textContent =
+      "UTC " +
+      String(now.getUTCHours()).padStart(2, "0") +
+      ":" +
+      String(now.getUTCMinutes()).padStart(2, "0") +
+      ":" +
+      String(now.getUTCSeconds()).padStart(2, "0");
+  }
 
   controls.update();
-
-  starField.rotation.y += delta * 0.002;
-
-  composer.render();
+  renderer.render(scene, camera);
 }
 
 animate();
 
+// ═════════════════════════════════════════════════════════
+//  RESIZE HANDLER
+// ═════════════════════════════════════════════════════════
+
 function onWindowResize() {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  camera.aspect = width / height;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-  composer.setSize(width, height);
+  renderer.setSize(w, h);
 }
 
 window.addEventListener("resize", onWindowResize);

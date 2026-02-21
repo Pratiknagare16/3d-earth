@@ -2,58 +2,73 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Ultra-Realistic Sun Visualization</title>
+  <title>NASA-Grade Earth Visualization | 3D Interactive Globe</title>
+  <meta name="description" content="Cinematic, physically realistic 3D Earth visualization with real-time rotation, moon orbit, atmosphere, and satellite tracking." />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       overflow: hidden;
       background: #000;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
-    #app {
-      width: 100%;
-      height: 100%;
-    }
+    #app { width: 100%; height: 100%; }
     #overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      padding: 12px 20px;
-      box-sizing: border-box;
-      color: #eee;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 12px;
-      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
-      pointer-events: none;
-      z-index: 10;
+      position: fixed; top: 0; left: 0; width: 100%;
+      padding: 16px 24px;
+      color: rgba(220, 230, 255, 0.9);
+      font-size: 12px; font-weight: 300;
+      letter-spacing: 0.03em;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.25) 60%, transparent 100%);
+      pointer-events: none; z-index: 10;
     }
-    #overlay strong {
-      color: #ffd27a;
+    #overlay .title {
+      font-size: 14px; font-weight: 600;
+      color: #7eb8ff;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
     }
+    #overlay .subtitle { opacity: 0.7; }
+    #info-bar {
+      position: fixed; bottom: 0; left: 0; width: 100%;
+      padding: 12px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      color: rgba(180, 200, 230, 0.6);
+      font-size: 11px; font-weight: 300;
+      background: linear-gradient(to top, rgba(0,0,0,0.5) 0%, transparent 100%);
+      pointer-events: none; z-index: 10;
+    }
+    #utc-clock {
+      font-variant-numeric: tabular-nums;
+      color: rgba(126, 184, 255, 0.7);
+      font-weight: 400;
+    }
+    canvas { display: block; }
   </style>
 </head>
 <body>
   <div id="app"></div>
   <div id="overlay">
-    <div><strong>Sun Visualization</strong> – G2V main-sequence star, real-time 3D</div>
-    <div>Controls: Orbit with mouse, scroll to zoom, press C for cutaway view, F to toggle flares.</div>
+    <div class="title">🌍 Earth Visualization</div>
+    <div class="subtitle">Real-time 3D &middot; Orbit with mouse &middot; Scroll to zoom</div>
+  </div>
+  <div id="info-bar">
+    <span>Axial tilt 23.44° &middot; Real-time UTC rotation</span>
+    <span id="utc-clock"></span>
   </div>
   <script type="importmap">
     {
       "imports": {
         "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
-        "three/examples/jsm/controls/OrbitControls.js": "https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js",
-        "three/examples/jsm/postprocessing/EffectComposer.js": "https://unpkg.com/three@0.161.0/examples/jsm/postprocessing/EffectComposer.js",
-        "three/examples/jsm/postprocessing/RenderPass.js": "https://unpkg.com/three@0.161.0/examples/jsm/postprocessing/RenderPass.js",
-        "three/examples/jsm/postprocessing/UnrealBloomPass.js": "https://unpkg.com/three@0.161.0/examples/jsm/postprocessing/UnrealBloomPass.js"
+        "three/examples/jsm/controls/OrbitControls.js": "https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js"
       }
     }
   </script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
-
